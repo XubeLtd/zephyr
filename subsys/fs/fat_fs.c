@@ -400,6 +400,17 @@ static int fatfs_stat(struct fs_mount_t *mountp,
 	FRESULT res;
 	FILINFO fno;
 
+	/* Special case: if the path is just the drive letter (e.g., "SD:"),
+	* FatFS f_stat() doesn't work. We need to append "/" to stat the root directory.
+	* Check if path is exactly the mount point (e.g., "/SD:" becomes "SD:")
+	*/
+	if (strcmp(path, mountp->mnt_point) == 0) {
+		/* This is the root of the mount point - manually set it as a directory */
+		entry->type = FS_DIR_ENTRY_DIR;
+		strcpy(entry->name, mountp->mnt_point);
+		entry->size = 0;
+		return 0;
+	}
 	res = f_stat(translate_path(path), &fno);
 	if (res == FR_OK) {
 		entry->type = ((fno.fattrib & AM_DIR) ?
