@@ -32,6 +32,10 @@ static void adxl355_thread_cb(const struct device *dev)
 		data->act_handler(dev, data->act_trigger);
 	}
 
+	if ((data->ovr_handler != NULL) && (status & ADXL355_STATUS_FIFO_OVR_MSK)) {
+		data->ovr_handler(dev, data->ovr_trigger);
+	}
+
 	ret = gpio_pin_interrupt_configure_dt(&cfg->interrupt_gpio, GPIO_INT_EDGE_TO_ACTIVE);
 	if (ret) {
 		LOG_ERR("Failed to enable interrupt: %d", ret);
@@ -120,6 +124,12 @@ int adxl355_trigger_set(const struct device *dev, const struct sensor_trigger *t
 		data->act_handler = handler;
 		data->act_trigger = trig;
 		int_mask = ADXL355_INT_MAP_ACTIVITY_EN1_MSK;
+		int_en = 1;
+		break;
+	case SENSOR_TRIG_OVERFLOW:
+		data->ovr_handler = handler;
+		data->ovr_trigger = trig;
+		int_mask = ADXL355_INT_MAP_FIFO_OVR_EN1_MSK;
 		int_en = 1;
 		break;
 	default:

@@ -286,15 +286,14 @@ static int adxl355_get_size_info(struct sensor_chan_spec channel, size_t *base_s
  */
 static bool adxl355_decoder_has_trigger(const uint8_t *buffer, enum sensor_trigger_type trigger)
 {
-#ifdef CONFIG_ADXL355_STREAM
-	return false;
-#endif
 	const struct adxl355_fifo_data *fifo_data = (const struct adxl355_fifo_data *)buffer;
 
 	switch (trigger) {
 	case SENSOR_TRIG_FIFO_WATERMARK:
 	case SENSOR_TRIG_FIFO_FULL:
 		return FIELD_GET(ADXL355_STATUS_FIFO_FULL_MSK, fifo_data->status1);
+	case SENSOR_TRIG_OVERFLOW:
+		return FIELD_GET(ADXL355_STATUS_FIFO_OVR_MSK, fifo_data->status1);
 	default:
 		return false;
 	}

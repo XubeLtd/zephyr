@@ -297,6 +297,8 @@ struct adxl355_data {
 	const struct sensor_trigger *drdy_trigger;
 	sensor_trigger_handler_t act_handler;
 	const struct sensor_trigger *act_trigger;
+	sensor_trigger_handler_t ovr_handler;
+	const struct sensor_trigger *ovr_trigger;
 #if defined(CONFIG_ADXL355_TRIGGER_OWN_THREAD)
 	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_ADXL355_THREAD_STACK_SIZE);
 	struct k_thread thread;
@@ -313,7 +315,7 @@ struct adxl355_data {
 	uint8_t fifo_counter;
 	uint64_t timestamp;
 	struct rtio *r_cb;
-	uint8_t fifo_watermark_irq;
+	uint8_t fifo_irq;
 	uint8_t fifo_samples;
 	uint16_t fifo_total_bytes;
 #endif

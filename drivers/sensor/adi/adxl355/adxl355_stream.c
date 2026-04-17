@@ -38,7 +38,8 @@ void adxl355_submit_stream(const struct device *dev, struct rtio_iodev_sqe *iode
 
 	struct adxl355_data *data = (struct adxl355_data *)dev->data;
 	const struct adxl355_dev_config *cfg_355 = dev->config;
-	uint8_t fifo_watermark_irq = 0;
+	uint8_t fifo_irq = 0;
+	uint8_t fifo_mask = 0;
 	uint8_t status;
 	int ret = 0;
 
@@ -51,17 +52,20 @@ void adxl355_submit_stream(const struct device *dev, struct rtio_iodev_sqe *iode
 
 	for (size_t i = 0; i < cfg->count; i++) {
 		if (cfg->triggers[i].trigger == SENSOR_TRIG_FIFO_WATERMARK) {
-			fifo_watermark_irq = 1;
-			break;
+			fifo_irq |= 1;
+			fifo_mask |= ADXL355_INT_MAP_FIFO_FULL_EN1_MSK;
+		} else if (cfg->triggers[i].trigger == SENSOR_TRIG_OVERFLOW) {
+			fifo_irq |= 2;
+			fifo_mask |= ADXL355_INT_MAP_FIFO_OVR_EN1_MSK;
 		}
 	}
 
-	if (fifo_watermark_irq != data->fifo_watermark_irq) {
-		data->fifo_watermark_irq = fifo_watermark_irq;
-		ret = adxl355_reg_update(dev, ADXL355_INT_MAP,
-					 data->route_to_int2 ? ADXL355_INT_MAP_FIFO_FULL_EN2_MSK
-							     : ADXL355_INT_MAP_FIFO_FULL_EN1_MSK,
-					 fifo_watermark_irq);
+	if (fifo_irq != data->fifo_irq) {
+		data->fifo_irq = fifo_irq;
+		if (data->route_to_int2) {
+			fifo_mask = fifo_mask << 4;
+		}
+		ret = adxl355_reg_update(dev, ADXL355_INT_MAP, fifo_mask, fifo_irq);
 		if (ret < 0) {
 			LOG_ERR("Failed to update interrupt map: %d", ret);
 			rtio_iodev_sqe_err(iodev_sqe, ret);
