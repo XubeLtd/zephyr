@@ -230,27 +230,46 @@ int memc_flexspi_set_device_config(const struct device *dev,
 	tmp_config.ARDSeqIndex += data->port_luts[port].lut_offset / MEMC_FLEXSPI_CMD_PER_SEQ;
 	tmp_config.AWRSeqIndex += data->port_luts[port].lut_offset / MEMC_FLEXSPI_CMD_PER_SEQ;
 
-	/* Set FlexSPI clock to the max frequency flash can support.
-	 * FLEXSPI_SetFlashConfig only update DLL but not the freq divider.
+	/*
+	 * Get the real clock for DLL configuration. This must be done before
+	 * memc_flexspi_update_clock() because that function performs a
+	 * FLEXSPI_SoftwareReset which flushes the XIP AHB cache. Any XIP
+	 * access after the cache flush but before the LUT is updated for the
+	 * new frequency would use stale timing parameters and return corrupted
+	 * data.
 	 */
-	ret = memc_flexspi_update_clock(dev, &tmp_config,
-					port, device_config->flexspiRootClk);
-	if (ret < 0) {
-		LOG_ERR("memc flexspi update clock error: %d", ret);
-		return ret;
-	}
-
-	/* Get the real clock for DLL updating. */
 	ret = clock_control_get_rate(data->clock_dev, data->clock_subsys,
 				&tmp_config.flexspiRootClk);
 	if (ret < 0) {
 		LOG_ERR("memc flexspi get root clock error: %d", ret);
 		return ret;
 	}
-	divider = (base->MCR0 & FLEXSPI_MCR0_SERCLKDIV_MASK) >> FLEXSPI_MCR0_SERCLKDIV_SHIFT;
-	tmp_config.flexspiRootClk /= (divider + 1);
 
-	/* Lock IRQs before reconfiguring FlexSPI, to prevent XIP */
+	/*
+	 * Predict the SERCLKDIV that memc_flexspi_update_clock() will select
+	 * so we can pass the correct effective serial clock to
+	 * FLEXSPI_SetFlashConfig() for DLL calibration.
+	 */
+	{
+		uint32_t target_hz = MIN((uint32_t)device_config->flexspiRootClk,
+					 tmp_config.flexspiRootClk);
+		uint32_t new_div = (tmp_config.flexspiRootClk + target_hz - 1U) /
+				   target_hz - 1U;
+		uint32_t max_div = FLEXSPI_MCR0_SERCLKDIV_MASK >>
+				   FLEXSPI_MCR0_SERCLKDIV_SHIFT;
+
+		new_div = MIN(new_div, max_div);
+		tmp_config.flexspiRootClk /= (new_div + 1U);
+	}
+
+	/*
+	 * Install the new device config and LUT while the cache is still valid
+	 * (before the clock update). After the clock change the AHB cache is
+	 * flushed and the first cache refills must use the correct LUT for the
+	 * new frequency. Installing the higher-frequency LUT at the current
+	 * lower speed is harmless — extra dummy cycles cause only added latency,
+	 * not data corruption.
+	 */
 	key = irq_lock();
 	FLEXSPI_SetFlashConfig(base, &tmp_config, port);
 
@@ -262,6 +281,17 @@ int memc_flexspi_set_device_config(const struct device *dev,
 	FLEXSPI_UpdateLUT(base, data->port_luts[port].lut_offset,
 			  lut_ptr, lut_count);
 	irq_unlock(key);
+
+	/* Set FlexSPI clock to the max frequency flash can support. The
+	 * SoftwareReset inside this call flushes the AHB cache; subsequent
+	 * cache fills now use the LUT and clock that were just configured.
+	 */
+	ret = memc_flexspi_update_clock(dev, &tmp_config,
+					port, device_config->flexspiRootClk);
+	if (ret < 0) {
+		LOG_ERR("memc flexspi update clock error: %d", ret);
+		return ret;
+	}
 
 	return 0;
 }
