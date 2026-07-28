@@ -142,6 +142,17 @@ config MBEDTLS_ZEROIZE_ALT
 	  mbed TLS configuration supplies an alternate implementation of
 	  mbedtls_platform_zeroize.
 
+config MBEDTLS_THREADING_C
+	bool "Thread-safety"
+	help
+	  Enable the threading layer in Mbed TLS.
+
+config MBEDTLS_THREADING_ALT
+	bool "Alternative threading implementation"
+	depends on MBEDTLS_THREADING_C
+	help
+	  Use an alternative threading implementation.
+
 config MBEDTLS_BASE64_C
 	bool "Base64 module"
 	help

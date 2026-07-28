@@ -38,8 +38,49 @@ static void init_heap(void)
 #define init_heap(...)
 #endif /* CONFIG_MBEDTLS_ENABLE_HEAP && MBEDTLS_MEMORY_BUFFER_ALLOC_C */
 
+#ifdef CONFIG_MBEDTLS_THREADING_ALT_ZEPHYR
+#include <mbedtls/threading.h>
+
+static int zephyr_mutex_init(mbedtls_platform_mutex_t *mutex) {
+    return k_mutex_init(mutex) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+static void zephyr_mutex_free(mbedtls_platform_mutex_t *mutex) {
+    ARG_UNUSED(mutex);
+}
+static int zephyr_mutex_lock(mbedtls_platform_mutex_t *mutex) {
+    return k_mutex_lock(mutex, K_FOREVER) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+static int zephyr_mutex_unlock(mbedtls_platform_mutex_t *mutex) {
+    return k_mutex_unlock(mutex) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+static int zephyr_cond_init(mbedtls_platform_condition_variable_t *cond) {
+    return k_condvar_init(cond) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+static void zephyr_cond_free(mbedtls_platform_condition_variable_t *cond) {
+    ARG_UNUSED(cond);
+}
+static int zephyr_cond_signal(mbedtls_platform_condition_variable_t *cond) {
+    return k_condvar_signal(cond) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+static int zephyr_cond_broadcast(mbedtls_platform_condition_variable_t *cond) {
+    return k_condvar_broadcast(cond) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+static int zephyr_cond_wait(mbedtls_platform_condition_variable_t *cond,
+                            mbedtls_platform_mutex_t *mutex) {
+    return k_condvar_wait(cond, mutex, K_FOREVER) == 0 ? 0 : MBEDTLS_ERR_THREADING_USAGE_ERROR;
+}
+#endif
+
 static int _mbedtls_init(void)
 {
+
+#ifdef CONFIG_MBEDTLS_THREADING_ALT_ZEPHYR
+	mbedtls_threading_set_alt(zephyr_mutex_init, zephyr_mutex_free,
+							zephyr_mutex_lock, zephyr_mutex_unlock,
+							zephyr_cond_init, zephyr_cond_free,
+							zephyr_cond_signal, zephyr_cond_broadcast,
+							zephyr_cond_wait);
+#endif
 
 	init_heap();
 

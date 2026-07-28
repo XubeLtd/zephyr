@@ -194,6 +194,14 @@ config MBEDTLS_INIT
 	  By default mbed TLS will be initialized at Zephyr init. Disabling this option
 	  will defer the initialization until explicitly called.
 
+config MBEDTLS_THREADING_ALT_ZEPHYR
+	bool "Use Zephyr threading primitives for mbed TLS"
+	select MBEDTLS_THREADING_ALT
+	select MBEDTLS_THREADING_C
+	help
+	  Enable mbed TLS threading support using Zephyr's threading primitives.
+	  This is required when mbed TLS functions are called from multiple threads.
+
 config MBEDTLS_SHELL
 	bool "mbed TLS shell"
 	depends on SHELL
