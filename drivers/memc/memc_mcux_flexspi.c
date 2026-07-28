@@ -184,7 +184,6 @@ int memc_flexspi_set_device_config(const struct device *dev,
 	uint8_t lut_used = 0U;
 	unsigned int key = 0;
 	int ret;
-	uint32_t divider;
 
 	if (port >= kFLEXSPI_PortCount) {
 		LOG_ERR("Invalid port number");
