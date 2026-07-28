@@ -247,7 +247,7 @@ static int cb_calc_buf_checksum(void *arg, uint8_t *buf, size_t len)
 static int process_stored_dump(data_read_cb_t cb, void *cb_arg)
 {
 	int ret;
-	struct flash_hdr_t hdr;
+	struct flash_hdr_t hdr = {0};
 	off_t offset;
 
 	ret = partition_open();
