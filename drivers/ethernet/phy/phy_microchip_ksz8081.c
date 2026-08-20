@@ -64,6 +64,8 @@ struct mc_ksz8081_config {
 #define KSZ8081_SILENCE_DEBUG_LOGS BIT(1)
 #define KSZ8081_LINK_STATE_VALID BIT(2)
 #define KSZ8081_INITIALIZED BIT(3)
+/* set once the PHY's own interrupt-enable (ICS) register write has verified as stuck */
+#define KSZ8081_INT_ENABLED BIT(4)
 
 #define USING_INTERRUPT_GPIO							\
 		UTIL_OR(DT_ALL_INST_HAS_PROP_STATUS_OKAY(int_gpios),		\
@@ -147,6 +149,8 @@ static int phy_mc_ksz8081_clear_interrupt(struct mc_ksz8081_data *data)
 	ret = phy_mc_ksz8081_read(dev, PHY_MC_KSZ8081_ICS_REG, &ics);
 	if (ret < 0) {
 		LOG_ERR("Error reading phy (%d) interrupt status register", config->addr);
+	} else {
+		LOG_DBG("PHY (%d) clear_interrupt: ICS=0x%04x", config->addr, ics);
 	}
 
 	/* Unlock mutex */
@@ -157,7 +161,7 @@ static int phy_mc_ksz8081_clear_interrupt(struct mc_ksz8081_data *data)
 static int phy_mc_ksz8081_config_interrupt(const struct device *dev)
 {
 	struct mc_ksz8081_data *data = dev->data;
-	uint32_t ics;
+	uint32_t ics = 0;
 	int ret;
 
 	/* Read Interrupt Control/Status register to write back */
@@ -171,6 +175,30 @@ static int phy_mc_ksz8081_config_interrupt(const struct device *dev)
 	ret = phy_mc_ksz8081_write(dev, PHY_MC_KSZ8081_ICS_REG, ics);
 	if (ret < 0) {
 		return ret;
+	}
+
+	/*
+	 * On a cold power-up, this write (and other non-essential-register writes,
+	 * e.g. OMSO) can silently fail to take effect for a while after reset -
+	 * observed anywhere from ~600 ms to several seconds, and NOT shortened by
+	 * retrying tightly in a loop here (confirmed: retrying up to 3 s straight
+	 * away doesn't help - the fix always lands ~CONFIG_PHY_MONITOR_PERIOD after
+	 * whatever else the system is doing at boot finishes, not from us hammering
+	 * the bus). So just record whether it stuck; phy_mc_ksz8081_monitor_work_handler()
+	 * retries this on its own periodic schedule until it succeeds. A warm reset
+	 * never crosses this window since the PHY's clock is already stable, which is
+	 * why this only reproduces on a true power cycle.
+	 */
+	ret = phy_mc_ksz8081_read(dev, PHY_MC_KSZ8081_ICS_REG, &ics);
+	if (ret < 0) {
+		return ret;
+	}
+
+	if ((ics & (PHY_MC_KSZ8081_ICS_LINK_UP_IE_MASK | PHY_MC_KSZ8081_ICS_LINK_DOWN_IE_MASK)) ==
+	    (PHY_MC_KSZ8081_ICS_LINK_UP_IE_MASK | PHY_MC_KSZ8081_ICS_LINK_DOWN_IE_MASK)) {
+		data->flags |= KSZ8081_INT_ENABLED;
+	} else {
+		data->flags &= ~KSZ8081_INT_ENABLED;
 	}
 
 	/* Clear interrupt */
@@ -187,6 +215,8 @@ static void phy_mc_ksz8081_interrupt_handler(const struct device *port, struct g
 {
 	struct mc_ksz8081_data *data = CONTAINER_OF(cb, struct mc_ksz8081_data, gpio_callback);
 	int ret = -ESRCH;
+
+	LOG_DBG("PHY int-gpio ISR fired (initialized=%d)", (data->flags & KSZ8081_INITIALIZED) != 0);
 
 	if (data->flags & KSZ8081_INITIALIZED) {
 		ret = k_work_reschedule(&data->phy_monitor_work, K_NO_WAIT);
@@ -413,6 +443,21 @@ static int phy_mc_ksz8081_reset_gpio(const struct mc_ksz8081_config *config)
 		return -ENODEV;
 	}
 
+#if DT_ANY_INST_HAS_PROP_STATUS_OKAY(int_gpios)
+	/*
+	 * This pin is dual-purposed on the KSZ8081 as INTRP/NAND_TREE#: right as
+	 * reset is released, the chip samples it to decide whether to enter
+	 * NAND-tree production test mode instead of normal operation. If the
+	 * board's strap resistors bias this net low by default, drive it high
+	 * ourselves through the reset pulse so the strap reads correctly
+	 * regardless. ksz8081_init_int_gpios() reconfigures this pin as an input
+	 * for its real interrupt duty once we're past this window.
+	 */
+	if (config->interrupt_gpio.port != NULL && gpio_is_ready_dt(&config->interrupt_gpio)) {
+		(void)gpio_pin_configure_dt(&config->interrupt_gpio, GPIO_OUTPUT_INACTIVE);
+	}
+#endif
+
 	ret = gpio_pin_configure_dt(&config->reset_gpio, GPIO_OUTPUT_ACTIVE);
 	if (ret) {
 		return ret;
@@ -485,6 +530,7 @@ static int phy_mc_ksz8081_reset(const struct device *dev)
 {
 	const struct mc_ksz8081_config *config = dev->config;
 	struct mc_ksz8081_data *data = dev->data;
+	uint32_t status;
 	int ret;
 
 	/* Lock mutex */
@@ -494,12 +540,21 @@ static int phy_mc_ksz8081_reset(const struct device *dev)
 		return ret;
 	}
 
-	ret = phy_mc_ksz8081_reset_gpio(config);
-	if (ret == -ENODEV) { /* On -ENODEV, attempt command-based reset */
-		ret = phy_mc_ksz8081_write(dev, MII_BMCR, MII_BMCR_RESET);
+	phy_mc_ksz8081_reset_gpio(config);
+	ret = phy_mc_ksz8081_write(dev, MII_BMCR, MII_BMCR_RESET);
+	if (ret < 0) {
+		goto done;
+	}
+	/* Wait until reset done */
+	while (true) {
+		ret = phy_mc_ksz8081_read(dev, MII_BMCR, &status);
 		if (ret < 0) {
 			goto done;
 		}
+		if ((status & MII_BMCR_RESET) == 0) {
+			break;
+		}
+		k_busy_wait(100);
 	}
 
 	/* PHY reset can be slower on some systems. So make sure PHY is up.*/
@@ -602,6 +657,10 @@ static void phy_mc_ksz8081_monitor_work_handler(struct k_work *work)
 		if (rc < 0) {
 			return;
 		}
+
+		if (!(data->flags & KSZ8081_INT_ENABLED)) {
+			phy_mc_ksz8081_config_interrupt(dev);
+		}
 	}
 
 	if (!data->state.is_up) {
@@ -633,7 +692,7 @@ static void phy_mc_ksz8081_monitor_work_handler(struct k_work *work)
 		}
 		LOG_INF("PHY %d is %s", config->addr, data->state.is_up ? "up" : "down");
 		if (data->state.is_up) {
-			LOG_INF("PHY (%d) Link speed %s Mb, %s duplex\n", config->addr,
+			LOG_INF("PHY (%d) Link speed %s Mb, %s duplex", config->addr,
 				(PHY_LINK_IS_SPEED_100M(data->state.speed) ? "100" : "10"),
 				PHY_LINK_IS_FULL_DUPLEX(data->state.speed) ? "full" : "half");
 		}
@@ -648,7 +707,10 @@ static void phy_mc_ksz8081_monitor_work_handler(struct k_work *work)
 	}
 
 	if (USING_INTERRUPT_GPIO) {
-		return;
+		if (data->flags & KSZ8081_INT_ENABLED) {
+			return;
+		}
+		/* Interrupt enable hasn't stuck yet - keep polling until it does. */
 	}
 
 	k_work_reschedule(&data->phy_monitor_work, K_MSEC(CONFIG_PHY_MONITOR_PERIOD));
@@ -688,6 +750,8 @@ static int ksz8081_init_int_gpios(const struct device *dev)
 done:
 	if (ret < 0) {
 		LOG_ERR("PHY (%d) config interrupt failed", config->addr);
+	} else {
+		LOG_DBG("PHY (%d) int-gpio configured ok", config->addr);
 	}
 
 	return ret;
@@ -700,6 +764,8 @@ static int phy_mc_ksz8081_init(const struct device *dev)
 {
 	const struct mc_ksz8081_config *config = dev->config;
 	struct mc_ksz8081_data *data = dev->data;
+	uint32_t phyid1 = 0;
+	uint32_t phyid2 = 0;
 	int ret;
 
 	data->dev = dev;
@@ -713,6 +779,19 @@ static int phy_mc_ksz8081_init(const struct device *dev)
 	ret = phy_mc_ksz8081_reset(dev);
 	if (ret) {
 		return ret;
+	}
+
+	ret = phy_mc_ksz8081_read(dev, MII_PHYID1R, &phyid1);
+	if (ret) {
+		return ret;
+	}
+	ret = phy_mc_ksz8081_read(dev, MII_PHYID2R, &phyid2);
+	if (ret) {
+		return ret;
+	}
+	if ((phyid1 != 0x0022) || ((phyid2 & 0xFFF0) != 0x1560)) {
+		LOG_ERR("PHY invalid id (%d) ID1=0x%04x ID2=0x%04x", config->addr, phyid1, phyid2);
+		return -ENODEV;
 	}
 
 	k_work_init_delayable(&data->phy_monitor_work,
