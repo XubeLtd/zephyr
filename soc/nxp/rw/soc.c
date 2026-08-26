@@ -310,6 +310,12 @@ __weak __ramfunc void clock_init(void)
 	 * via CLOCK_DeinitTddrRefClk() in soc_early_init_hook()
 	 */
 	SYSCTL2->PLL_CTRL |= SYSCTL2_PLL_CTRL_TDDR_PDB_MASK;
+	/* Wait for the PLL to actually lock before resetting/using ENET -
+	 * matches CLOCK_InitTddrRefClk() in the NXP SDK, which never lets
+	 * anything depend on this clock without waiting for lock first.
+	 */
+	while ((SYSCTL2->PLL_CTRL & SYSCTL2_PLL_CTRL_TDDR_LOCK_MASK) == 0U) {
+	}
 	RESET_PeripheralReset(kENET_IPG_RST_SHIFT_RSTn);
 	RESET_PeripheralReset(kENET_IPG_S_RST_SHIFT_RSTn);
 #else
