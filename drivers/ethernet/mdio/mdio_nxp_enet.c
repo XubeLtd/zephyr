@@ -15,6 +15,9 @@
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/sys_clock.h>
 
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(mdio_nxp_enet, CONFIG_MDIO_LOG_LEVEL);
+
 struct nxp_enet_mdio_config {
 	const struct pinctrl_dev_config *pincfg;
 	const struct device *module_dev;
@@ -48,13 +51,23 @@ static int nxp_enet_mdio_wait_xfer(const struct device *dev)
 	}
 
 	if (!data->interrupt_up) {
-		/* If the interrupt is not available to use yet, just busy wait */
-		k_busy_wait(CONFIG_MDIO_NXP_ENET_TIMEOUT);
+		/* If the interrupt is not available to use yet, poll for the
+		 * hardware's own completion flag instead of blindly waiting a
+		 * fixed delay and assuming success - a fixed delay can elapse
+		 * before the transfer actually finishes, letting the caller
+		 * read MMFR before it holds a valid result.
+		 */
+		if (!WAIT_FOR((data->base->EIR & ENET_EIR_MII_MASK) != 0,
+			      CONFIG_MDIO_NXP_ENET_TIMEOUT, k_busy_wait(1))) {
+			return -ETIMEDOUT;
+		}
 		k_sem_give(&data->mdio_sem);
 	}
 
 	/* Wait for the MDIO transaction to finish or time out */
-	k_sem_take(&data->mdio_sem, K_USEC(CONFIG_MDIO_NXP_ENET_TIMEOUT));
+	if (k_sem_take(&data->mdio_sem, K_USEC(CONFIG_MDIO_NXP_ENET_TIMEOUT)) != 0) {
+		return -ETIMEDOUT;
+	}
 
 	return 0;
 }
@@ -73,6 +86,16 @@ static int mdio_transfer(const struct device *dev, uint8_t prtad, uint8_t regad,
 	 * prepare to wait for it to be set once this transfer is done
 	 */
 	data->base->EIR = ENET_EIR_MII_MASK;
+
+	/* Discard any stale k_sem_give() left over from a previous transfer
+	 * whose own wait already timed out - e.g. the ISR firing late, after
+	 * nxp_enet_mdio_wait_xfer() had already given up on it. Without this,
+	 * that leftover count lets the NEXT transaction's k_sem_take() below
+	 * succeed immediately, before this transaction's own MMFR write has
+	 * actually completed, so the caller reads stale/partial data back as
+	 * if it were a valid, successful result.
+	 */
+	k_sem_reset(&data->mdio_sem);
 
 	/*
 	 * Write MDIO frame to MII management register which will
