@@ -8,6 +8,22 @@
 
 LOG_MODULE_DECLARE(ADXL355);
 
+/* Shift applied to all decoded Q31 accel samples (see adxl355_accel_convert_q31()) */
+#define ADXL355_Q31_SHIFT 11
+
+/* Numerator shared by all ranges: SENSOR_G scaled by (2^31 / 2^ADXL355_Q31_SHIFT). Kept
+ * un-divided (rather than folded into a single per-range constant) so the conversion can
+ * do sample * NUMERATOR / DENOMINATOR in one 64-bit step, without an intermediate rounding.
+ */
+#define ADXL355_Q31_NUMERATOR (SENSOR_G * (1LL << (31 - ADXL355_Q31_SHIFT)))
+
+/* Per-range denominator (LSB/g * 1000000), indexed by enum adxl355_range */
+static const int64_t adxl355_accel_denominator[] = {
+	[ADXL355_RANGE_2G] = (int64_t)ADXL355_SENSITIVITY_2G * 1000000LL,
+	[ADXL355_RANGE_4G] = (int64_t)ADXL355_SENSITIVITY_4G * 1000000LL,
+	[ADXL355_RANGE_8G] = (int64_t)ADXL355_SENSITIVITY_8G * 1000000LL,
+};
+
 #ifdef CONFIG_ADXL355_STREAM
 /**
  * @brief Accelerometer output data rate periods in nanoseconds
@@ -69,24 +85,9 @@ static int adxl355_decoder_get_frame_count(const uint8_t *buffer, struct sensor_
 static inline void adxl355_accel_convert_q31(q31_t *out, const uint8_t *buff,
 					     const enum adxl355_range range)
 {
-	int32_t sensitivity;
-	int32_t sample = (int32_t)((((buff[0] << 16) | (buff[1] << 8) | buff[2]) << 8) >> 12);
+	int64_t sample = (int32_t)((((buff[0] << 16) | (buff[1] << 8) | buff[2]) << 8) >> 12);
 
-	switch (range) {
-	case ADXL355_RANGE_2G:
-		sensitivity = SENSOR_G / 256000;
-		break;
-	case ADXL355_RANGE_4G:
-		sensitivity = SENSOR_G / 128000;
-		break;
-	case ADXL355_RANGE_8G:
-		sensitivity = SENSOR_G / 64000;
-		break;
-	default:
-		LOG_ERR("Invalid range setting");
-		return;
-	}
-	*out = sample * sensitivity;
+	*out = (q31_t)((sample * ADXL355_Q31_NUMERATOR) / adxl355_accel_denominator[range]);
 }
 
 #ifdef CONFIG_ADXL355_STREAM
@@ -118,7 +119,7 @@ static int adxl355_decode_stream(const uint8_t *buffer, struct sensor_chan_spec 
 	memset(data, 0, sizeof(struct sensor_three_axis_sample_data));
 	data->header.base_timestamp_ns = enc_data->timestamp;
 	data->header.reading_count = 1;
-	data->shift = 11;
+	data->shift = ADXL355_Q31_SHIFT;
 
 	buffer += sizeof(struct adxl355_fifo_data);
 	uint8_t sample_set_size = enc_data->sample_set_size * 3;
@@ -207,7 +208,7 @@ static int adxl355_decode_sample(const struct adxl355_sample *data,
 	memset(out, 0, sizeof(struct sensor_three_axis_data));
 	out->header.base_timestamp_ns = k_ticks_to_ns_floor64(k_uptime_ticks());
 	out->header.reading_count = 1;
-	out->shift = 11;
+	out->shift = ADXL355_Q31_SHIFT;
 
 	if (*fit > 0) {
 		return -ENOTSUP;
