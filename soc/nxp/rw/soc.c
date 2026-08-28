@@ -316,6 +316,19 @@ __weak __ramfunc void clock_init(void)
 	 */
 	while ((SYSCTL2->PLL_CTRL & SYSCTL2_PLL_CTRL_TDDR_LOCK_MASK) == 0U) {
 	}
+	/* Also un-gate the MCI_ENET_CLK output here, deterministically before
+	 * any driver init runs. CLOCK_DeinitTddrRefClk() (called by MCUboot)
+	 * sets this gate in addition to clearing PDB, and the normal place
+	 * this gate gets cleared is clock_control_mcux_syscon.c's handling of
+	 * MCUX_ENET_CLK - but that runs from the eth_nxp_enet driver's own
+	 * POST_KERNEL init, at the same init priority as the PHY driver, so
+	 * PHY reset is not guaranteed to happen after it. Since this ENET_CLK
+	 * output feeds the PHY's RMII reference clock (SoC is clock master
+	 * here - see IO_MUX_ENET_CLK in the board pinmux), releasing PHY
+	 * reset before this clock is live risks the PHY sampling straps and
+	 * starting autonegotiation against a bad/absent reference clock.
+	 */
+	CLOCK_EnableClock(kCLOCK_TddrMciEnetClk);
 	RESET_PeripheralReset(kENET_IPG_RST_SHIFT_RSTn);
 	RESET_PeripheralReset(kENET_IPG_S_RST_SHIFT_RSTn);
 #else
