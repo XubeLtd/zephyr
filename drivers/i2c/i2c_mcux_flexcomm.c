@@ -199,12 +199,12 @@ static int mcux_flexcomm_transfer(const struct device *dev,
 		}
 
 		/* Wait for the transfer to complete */
-		k_sem_take(&data->device_sync_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+		ret = k_sem_take(&data->device_sync_sem, I2C_TRANSFER_TIMEOUT_MSEC);
 
 		/* Return an error if the transfer didn't complete
 		 * successfully. e.g., nak, timeout, lost arbitration
 		 */
-		if (data->callback_status != kStatus_Success) {
+		if ((ret != 0) || (data->callback_status != kStatus_Success)) {
 			I2C_MasterTransferAbort(base, &data->handle);
 			ret = -EIO;
 			break;
@@ -657,8 +657,7 @@ static int i2c_mcux_flexcomm_pm_action(const struct device *dev, enum pm_device_
 	case PM_DEVICE_ACTION_TURN_OFF:
 		return 0;
 	case PM_DEVICE_ACTION_TURN_ON:
-		mcux_flexcomm_init_common(dev);
-		return 0;
+		return mcux_flexcomm_init_common(dev);
 	default:
 		return -ENOTSUP;
 	}

@@ -755,9 +755,11 @@ static int eth_nxp_enet_device_pm_action(const struct device *dev, enum pm_devic
 	if (action == PM_DEVICE_ACTION_SUSPEND) {
 		LOG_DBG("Suspending");
 
-		ret = net_if_suspend(data->iface);
-		if (ret) {
-			return ret;
+		if (data->iface != NULL) {
+			ret = net_if_suspend(data->iface);
+			if (ret) {
+				return ret;
+			}
 		}
 
 		ENET_EnableSleepMode(data->base, true);
@@ -765,7 +767,9 @@ static int eth_nxp_enet_device_pm_action(const struct device *dev, enum pm_devic
 		LOG_DBG("Resuming");
 
 		ENET_EnableSleepMode(data->base, false);
-		net_if_resume(data->iface);
+		if (data->iface != NULL) {
+			net_if_resume(data->iface);
+		}
 	} else {
 		return -ENOTSUP;
 	}
