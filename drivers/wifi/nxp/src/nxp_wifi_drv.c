@@ -12,6 +12,7 @@
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/dns_resolve.h>
 #include <zephyr/device.h>
+#include <zephyr/kernel.h>
 #include <soc.h>
 #include <ethernet/eth_stats.h>
 #include <zephyr/logging/log.h>
@@ -63,6 +64,47 @@ static struct wlan_network nxp_wlan_network;
 #ifdef CONFIG_NXP_WIFI_SOFTAP_SUPPORT
 static struct wlan_network nxp_wlan_uap_network;
 #endif
+
+/*
+ * Watchdog for a connect attempt that never reaches a terminal outcome.
+ *
+ * The vendor WLAN connection manager's own task (wlcmgr_task) has been
+ * observed to block forever on its event queue after a re-scan triggered by
+ * an association failure never completes - no further wlcm debug output, and
+ * wlcmgr_task's execution-cycle count stops advancing entirely (confirmed via
+ * "kernel thread list"). When that happens, no WLAN_REASON_* event is ever
+ * delivered to nxp_wifi_wlan_event_callback() below, so neither
+ * wifi_mgmt_raise_connect_result_event() nor the app's own retry logic
+ * (which is driven by that event) ever fires - wlan0 stays down permanently.
+ *
+ * wlan_disconnect() posts into the same event queue wlcmgr_task blocks on
+ * (via send_user_request()), so it reliably unblocks the stuck task even
+ * though it doesn't know why the task stopped progressing. If no terminal
+ * event has cancelled this watchdog within the timeout, force a fresh
+ * disconnect/connect cycle to recover.
+ */
+#define NXP_WIFI_CONNECT_WATCHDOG_MS 25000
+
+static void nxp_wifi_connect_watchdog_work_handler(struct k_work *work);
+
+static K_WORK_DELAYABLE_DEFINE(nxp_wifi_connect_watchdog_work,
+				nxp_wifi_connect_watchdog_work_handler);
+
+static void nxp_wifi_connect_watchdog_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	LOG_WRN("WLAN: connect attempt had no terminal event after %d ms, forcing reconnect",
+		NXP_WIFI_CONNECT_WATCHDOG_MS);
+
+	wlan_disconnect();
+	if (wlan_connect(nxp_wlan_network.name) != WM_SUCCESS) {
+		LOG_ERR("WLAN: watchdog-triggered reconnect failed to start");
+		return;
+	}
+
+	k_work_reschedule(&nxp_wifi_connect_watchdog_work, K_MSEC(NXP_WIFI_CONNECT_WATCHDOG_MS));
+}
 
 #if defined(CONFIG_NXP_WIFI_SOFTAP_SUPPORT) && !defined(CONFIG_WIFI_NM_HOSTAPD_AP)
 static char uap_ssid[IEEEtypes_SSID_SIZE + 1];
@@ -202,16 +244,19 @@ int nxp_wifi_wlan_event_callback(enum wlan_event_reason reason, void *data)
 #endif
 		auth_fail = 0;
 		s_nxp_wifi_StaConnected = true;
+		k_work_cancel_delayable(&nxp_wifi_connect_watchdog_work);
 		wifi_mgmt_raise_connect_result_event(g_mlan.netif, 0);
 		break;
 	case WLAN_REASON_CONNECT_FAILED:
 		net_if_dormant_on(g_mlan.netif);
 		LOG_WRN("WLAN: connect failed");
+		k_work_cancel_delayable(&nxp_wifi_connect_watchdog_work);
 		wifi_mgmt_raise_connect_result_event(g_mlan.netif, WIFI_STATUS_CONN_FAIL);
 		break;
 	case WLAN_REASON_NETWORK_NOT_FOUND:
 		net_if_dormant_on(g_mlan.netif);
 		LOG_WRN("WLAN: nxp_wlan_network not found");
+		k_work_cancel_delayable(&nxp_wifi_connect_watchdog_work);
 		wifi_mgmt_raise_connect_result_event(g_mlan.netif, WIFI_STATUS_CONN_AP_NOT_FOUND);
 		break;
 	case WLAN_REASON_NETWORK_AUTH_FAILED:
@@ -223,6 +268,7 @@ int nxp_wifi_wlan_event_callback(enum wlan_event_reason reason, void *data)
 			auth_fail = 0;
 		}
 		net_if_dormant_on(g_mlan.netif);
+		k_work_cancel_delayable(&nxp_wifi_connect_watchdog_work);
 		wifi_mgmt_raise_connect_result_event(g_mlan.netif, WIFI_STATUS_CONN_WRONG_PASSWORD);
 		break;
 	case WLAN_REASON_ADDRESS_SUCCESS:
@@ -236,6 +282,7 @@ int nxp_wifi_wlan_event_callback(enum wlan_event_reason reason, void *data)
 		LOG_DBG("disconnected");
 		auth_fail = 0;
 		s_nxp_wifi_StaConnected = false;
+		k_work_cancel_delayable(&nxp_wifi_connect_watchdog_work);
 		wifi_mgmt_raise_disconnect_result_event(g_mlan.netif, 0);
 		break;
 	case WLAN_REASON_LINK_LOST:
@@ -1219,6 +1266,9 @@ static int nxp_wifi_connect(const struct device *dev,
 	ret = wlan_connect(nxp_wlan_network.name);
 	if (ret != WM_SUCCESS) {
 		status = NXP_WIFI_RET_FAIL;
+	} else {
+		k_work_reschedule(&nxp_wifi_connect_watchdog_work,
+				   K_MSEC(NXP_WIFI_CONNECT_WATCHDOG_MS));
 	}
 
 	return 0;
@@ -1260,6 +1310,7 @@ static int nxp_wifi_disconnect(const struct device *dev, struct net_if *iface)
 		return -EAGAIN;
 	}
 
+	k_work_cancel_delayable(&nxp_wifi_connect_watchdog_work);
 	wifi_mgmt_raise_disconnect_result_event(iface, 0);
 
 	return 0;
