@@ -163,59 +163,39 @@ static void conn_mgr_mon_handle_update(void)
 			ready_count_ipv4 += 1;
 		}
 
-		/* If any states changed, track blame for possibly triggered events */
+		/*
+		 * Notify for this iface's own transition as soon as it's detected, rather
+		 * than deferring to a single post-loop notification keyed off just the
+		 * last-seen "blame" - otherwise a second (or later) iface becoming ready
+		 * while an earlier one is already ready produces no event at all for it
+		 * (only the aggregate 0<->nonzero edge would fire).
+		 */
 		if (was_l4_ready != is_l4_ready) {
 			blame = conn_mgr_mon_get_if_by_index(idx);
+			net_mgmt_event_notify(is_l4_ready ? NET_EVENT_L4_CONNECTED
+							   : NET_EVENT_L4_DISCONNECTED, blame);
 		}
 		if (was_ipv6_ready != is_ipv6_ready) {
 			blame_ipv6 = conn_mgr_mon_get_if_by_index(idx);
+			net_mgmt_event_notify(is_ipv6_ready ? NET_EVENT_L4_IPV6_CONNECTED
+							     : NET_EVENT_L4_IPV6_DISCONNECTED, blame_ipv6);
 		}
 		if (was_ipv4_ready != is_ipv4_ready) {
 			blame_ipv4 = conn_mgr_mon_get_if_by_index(idx);
+			net_mgmt_event_notify(is_ipv4_ready ? NET_EVENT_L4_IPV4_CONNECTED
+							     : NET_EVENT_L4_IPV4_DISCONNECTED, blame_ipv4);
 		}
 
 		/* Update readiness state flags with the (possibly) new values */
 		conn_mgr_mon_set_ready(idx, is_l4_ready, is_ipv4_ready, is_ipv6_ready);
 	}
 
-	/* If the total number of ready ifaces changed, possibly send an event */
-	if (ready_count != last_ready_count) {
-		if (ready_count == 0) {
-			/* We just lost connectivity */
-			net_mgmt_event_notify(NET_EVENT_L4_DISCONNECTED, blame);
-		} else if (last_ready_count == 0) {
-			/* We just gained connectivity */
-			net_mgmt_event_notify(NET_EVENT_L4_CONNECTED, blame);
-		}
-		last_ready_count = ready_count;
-		last_blame = blame;
-	}
-
-	/* Same, but specifically for IPv4 */
-	if (ready_count_ipv4 != last_ready_count_ipv4) {
-		if (ready_count_ipv4 == 0) {
-			/* We just lost IPv4 connectivity */
-			net_mgmt_event_notify(NET_EVENT_L4_IPV4_DISCONNECTED, blame_ipv4);
-		} else if (last_ready_count_ipv4 == 0) {
-			/* We just gained IPv4 connectivity */
-			net_mgmt_event_notify(NET_EVENT_L4_IPV4_CONNECTED, blame_ipv4);
-		}
-		last_ready_count_ipv4 = ready_count_ipv4;
-		last_blame_ipv4 = blame_ipv4;
-	}
-
-	/* Same, but specifically for IPv6 */
-	if (ready_count_ipv6 != last_ready_count_ipv6) {
-		if (ready_count_ipv6 == 0) {
-			/* We just lost IPv6 connectivity */
-			net_mgmt_event_notify(NET_EVENT_L4_IPV6_DISCONNECTED, blame_ipv6);
-		} else if (last_ready_count_ipv6 == 0) {
-			/* We just gained IPv6 connectivity */
-			net_mgmt_event_notify(NET_EVENT_L4_IPV6_CONNECTED, blame_ipv6);
-		}
-		last_ready_count_ipv6 = ready_count_ipv6;
-		last_blame_ipv6 = blame_ipv6;
-	}
+	last_ready_count = ready_count;
+	last_blame = blame;
+	last_ready_count_ipv4 = ready_count_ipv4;
+	last_blame_ipv4 = blame_ipv4;
+	last_ready_count_ipv6 = ready_count_ipv6;
+	last_blame_ipv6 = blame_ipv6;
 
 	k_mutex_unlock(&conn_mgr_mon_lock);
 }
