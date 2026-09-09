@@ -645,6 +645,13 @@ static int i2c_mcux_flexcomm_pm_action(const struct device *dev, enum pm_device_
 		if (error < 0 && error != -ENOENT) {
 			return error;
 		}
+		/* pinctrl_apply_state calls select_gpio_mode() which briefly clears
+		 * FC0 bit 1, disconnecting SDA/SCL from the FLEXCOMM. While disconnected
+		 * the FLEXCOMM's inputs default to LOW, which it interprets as a START
+		 * condition and gets stuck waiting for a STOP. Reset the master enable
+		 * bit to clear the stuck state, same as the bus recovery path does.
+		 */
+		I2C_MasterEnable(config->base, false);
 		I2C_MasterEnable(config->base, true);
 		break;
 	case PM_DEVICE_ACTION_SUSPEND:
