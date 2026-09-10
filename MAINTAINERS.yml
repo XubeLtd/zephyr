@@ -472,6 +472,8 @@ Arduino Platforms:
     - boards/shields/arduino_*/
     - drivers/*/*modulino*
     - dts/vendor/arduino/
+  labels:
+    - "platform: Arduino"
 
 Authentication:
   status: maintained
@@ -645,8 +647,8 @@ Bluetooth Audio:
     - "area: Bluetooth"
   tests:
     - bluetooth.audio
+    - bluetooth.audio_samples
     - sample.bluetooth.audio
-    - tests.bsim.bluetooth.audio
 
 Bluetooth Classic:
   status: maintained
@@ -691,6 +693,7 @@ Bluetooth Controller:
     - doc/services/connectivity/bluetooth/img/ctlr*
     - doc/services/connectivity/bluetooth/api/controller.rst
     - include/zephyr/bluetooth/controller.h
+    - samples/bluetooth/hci_*/
     - subsys/bluetooth/common/
     - subsys/bluetooth/controller/
     - subsys/bluetooth/crypto/
@@ -700,9 +703,17 @@ Bluetooth Controller:
     - "area: Bluetooth Controller"
     - "area: Bluetooth"
   tests:
-    - bluetooth.controller
     - bluetooth
+    - bluetooth.controller
     - bluetooth.ll
+    - sample.bluetooth.hci_ipc
+    - sample.bluetooth.hci_pwr_ctrl
+    - sample.bluetooth.hci_spi
+    - sample.bluetooth.hci_uart
+    - sample.bluetooth.hci_uart_3wire
+    - sample.bluetooth.hci_uart_async
+    - sample.bluetooth.hci_usb
+    - sample.bluetooth.hci_vs_scan_req
 
 Bluetooth HCI:
   status: maintained
@@ -875,7 +886,7 @@ Bluetooth Qualification:
   tests:
     - bluetooth
     - bluetooth.general
-    - bluetooth.tester_bsim
+    - bluetooth.tester
 
 Board/SoC configuration:
   status: maintained
@@ -1009,6 +1020,7 @@ Build system:
     - version.h.in
     - scripts/schemas/arch-schema.yaml
     - scripts/schemas/board-schema.yaml
+    - scripts/schemas/module-schema.yaml
     - scripts/schemas/soc-schema.yaml
     - scripts/list_shields.py
     - scripts/snippets.py
@@ -1248,8 +1260,9 @@ DAP:
 DFU:
   status: maintained
   maintainers:
-    - de-nordic
     - nordicjm
+  collaborators:
+    - de-nordic
   files:
     - include/zephyr/dfu/
     - subsys/dfu/
@@ -1469,6 +1482,8 @@ Documentation:
     - nashif
     - carlescufi
   files:
+    - AGENTS.md
+    - CLAUDE.md
     - CODE_OF_CONDUCT.md
     - CONTRIBUTING.rst
     - doc/glossary.rst
@@ -3242,6 +3257,8 @@ Espressif Platforms:
   files:
     - drivers/*/*esp32*.c
     - boards/espressif/
+    - cmake/emu/espressif_qemu.cmake
+    - cmake/emu/espressif_qemu/
     - soc/espressif/
     - dts/*/espressif/
     - dts/bindings/*/*esp32*
@@ -4224,6 +4241,15 @@ NEORV32 platform:
     - "platform: NEORV32"
   tests:
     - boards.neorv32
+
+NUCODE Platforms:
+  status: maintained
+  maintainers:
+    - manjae-cho
+  files:
+    - boards/nucode/
+  labels:
+    - "platform: NUCODE"
 
 NVMEM:
   status: maintained
@@ -6148,6 +6174,7 @@ TI K3 Platforms:
     - vaishnavachath
     - natto1784
     - Kronosblaster
+    - soumya-TI
   files:
     - boards/ti/*am2*/
     - boards/ti/*am6*/
@@ -6178,6 +6205,7 @@ TI MSPM Platforms:
     - karthi012
     - Girinandha-M
     - santhosh-c-c
+    - soumya-TI
   files:
     - soc/ti/mspm/
     - boards/ti/*mspm*/
@@ -6395,6 +6423,7 @@ Tracing:
   files:
     - subsys/tracing/
     - scripts/tracing/
+    - scripts/tests/tracing/
     - include/zephyr/tracing/
     - subsys/timing/
     - samples/subsys/tracing/
@@ -6483,6 +6512,8 @@ USB-C:
   maintainers:
     - sambhurst
     - keith-zephyr
+  collaborators:
+    - ncadieux
   files:
     - drivers/usb_c/
     - dts/bindings/usb-c/
@@ -7213,6 +7244,8 @@ West:
     - vaishnavachath
     - ssekar15
     - d-philpot
+  collaborators:
+    - Aman-Lachhiramka-ti
   files: []
   labels:
     - "platform: TI"
@@ -7634,8 +7667,8 @@ West:
     - libraries.uoscore.oscore_tests
 
 "West project: zcbor":
-  status: maintained
-  maintainers:
+  status: odd fixes
+  collaborators:
     - de-nordic
   files:
     - modules/zcbor/

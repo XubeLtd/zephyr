@@ -358,7 +358,8 @@ do {                                                                    \
  * @param n Maximum iteration count (must be a literal integer).
  */
 #ifndef TOOLCHAIN_PRAGMA_UNROLL
-#define TOOLCHAIN_PRAGMA_UNROLL(n) _Pragma("GCC unroll " #n)
+#define _TOOLCHAIN_PRAGMA_UNROLL(x) _Pragma(#x)
+#define TOOLCHAIN_PRAGMA_UNROLL(n) _TOOLCHAIN_PRAGMA_UNROLL(GCC unroll n)
 #endif
 
 /*
@@ -372,7 +373,7 @@ do {                                                                    \
 #define __WARN1(s) _Pragma(#s)
 
 /* Generic message */
-#if !(defined(CONFIG_DEPRECATION_TEST) || !defined(CONFIG_WARN_DEPRECATED))
+#if defined(CONFIG_WARN_DEPRECATED)
 #define __DEPRECATED_MACRO __WARN("Macro is deprecated")
 /* When adding this, remember to follow the instructions in
  * https://docs.zephyrproject.org/latest/develop/api/api_lifecycle.html#deprecated

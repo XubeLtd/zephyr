@@ -158,6 +158,8 @@ Removed APIs and options
     * The CMake ``flash``, ``debug``, ``debugserver``, ``attach`` and ``rtt`` targets,
       replaced by the corresponding ``west`` commands
     * The ``WEST_DIR`` build system variable
+    * The ``ZephyrUnittest`` CMake package, replaced by
+      ``find_package(Zephyr COMPONENTS unittest)``
 
 * CAN
 
@@ -178,6 +180,10 @@ Removed APIs and options
 * hawkBit
 
     * ``<zephyr/mgmt/hawkbit.h>``
+
+* Devicetree
+
+    * ``zephyr,memory-region-mpu``
 
 * LLEXT
 
@@ -221,17 +227,35 @@ Removed APIs and options
     * ``struct openthread_state_changed_cb``
     * ``TLS_CREDENTIAL_SERVER_CERTIFICATE``
     * ``start_11r_roaming``
+    * ``IEEE802154_HW_SLEEP_TO_TX``
 
 * Nordic
 
     * ``owner-id``, ``perm-read``, ``perm-write``, ``perm-execute``, ``perm-secure`` and
       ``non-secure-callable`` properties of :dtcompatible:`nordic,owned-memory` and
       :dtcompatible:`nordic,owned-partitions`
+    * ``CONFIG_BOARD_ENABLE_CPUNET``, replaced by :kconfig:option:`CONFIG_SOC_NRF53_CPUNET_ENABLE`
+    * ``CONFIG_GPIO_AS_PINRESET``
+    * ``CONFIG_NRFS_LOCAL_DOMAIN_DVFS_SCALE_DOWN_AFTER_INIT``, replaced by
+      :kconfig:option:`CONFIG_CLOCK_CONTROL_NRF_HSFLL_LOCAL_REQ_LOW_FREQ`
+    * ``CONFIG_SOC_DCDC_NRF52X``
+    * ``CONFIG_SOC_DCDC_NRF52X_HV``
+    * ``CONFIG_SOC_DCDC_NRF53X_APP``
+    * ``CONFIG_SOC_DCDC_NRF53X_NET``
+    * ``CONFIG_SOC_DCDC_NRF53X_HV``
+
+* POSIX
+
+    * ``CONFIG_POSIX_READER_WRITER_LOCKS``
 
 * Random
 
     * ``CONFIG_CTR_DRBG_CSPRNG_GENERATOR``
     * ``CONFIG_CS_CTR_DRBG_PERSONALIZATION``
+
+* Shell
+
+    * ``kernel log_level``, replaced by ``log enable``
 
 * SPI
 
@@ -270,6 +294,40 @@ Deprecated APIs and options
 
   * The ``zephyr_file_copy()`` CMake function has been deprecated. Use the native
     ``file(COPY_FILE ...)`` CMake command instead.
+
+* Clock control
+
+  * The function :c:func:`z_nrf_clock_control_get_onoff` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_K32SRC_ACCURACY` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_K32SRC` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_SUBSYS_HFAUDIO` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_SUBSYS_HFAUDIO` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_SUBSYS_HF24M` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_SUBSYS_HF24M` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The macro :c:macro:`CLOCK_CONTROL_NRF_SUBSYS_HF` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The enum :c:enumerator:`clock_control_nrf_type` has been deprecated.
+    See the :ref:`migration guide <migration_4.5>` for details.
+
+  * The Kconfig option :kconfig:option:`CONFIG_CLOCK_CONTROL_NRF` and all dependent kconfigs have
+    been deprecated. See the :ref:`migration guide <migration_4.5>` for details. The Kconfigs are
+    located in the ``drivers/clock_control/Kconfig.nrf`` and  ``modules/hal_nordic/nrfx/Kconfig``
+    files.
 
 * CPU Load
 
@@ -322,6 +380,19 @@ Deprecated APIs and options
   * Deprecated :kconfig:option:`CONFIG_NET_L2_PTP`.
     Used :kconfig:option:`CONFIG_NET_L2_PTP_TIMESTAMPING` instead.
 
+* SPI
+
+  * The SPI API now uses inclusive terminology (controller/peripheral, SDO/SDI). The former
+    names are deprecated: ``SPI_OP_MODE_MASTER``/``SPI_OP_MODE_SLAVE`` (use
+    :c:macro:`SPI_OP_MODE_CONTROLLER`/:c:macro:`SPI_OP_MODE_PERIPHERAL`), the ``slave`` member
+    of :c:struct:`spi_config` (use ``peripheral``), the ``SPI_MOSI_OVERRUN_*`` macros (use
+    :c:macro:`SPI_SDO_OVERRUN_UNKNOWN`, :c:macro:`SPI_SDO_OVERRUN_DT`,
+    :c:macro:`SPI_SDO_OVERRUN_DT_INST`), ``CONFIG_SPI_SLAVE`` (use
+    :kconfig:option:`CONFIG_SPI_PERIPHERAL`), the ``zephyr,bt-hci-spi-slave`` devicetree
+    compatible (use :dtcompatible:`zephyr,bt-hci-spi-peripheral`) and the
+    ``mosi-gpios``/``miso-gpios``-style devicetree properties of the bindings listed in the
+    migration guide.
+
 * Timer
 
   * New :c:func:`sys_clock_no_timeout` hook for handling of
@@ -329,6 +400,11 @@ Deprecated APIs and options
     :c:func:`sys_clock_set_timeout` with ``ticks=K_TICKS_FOREVER``.
   * New :c:func:`sys_clock_idle_enter` hook for handling of entry in low-power state,
     replacing the call to :c:func:`sys_clock_set_timeout` with ``idle=true``.
+
+* :abbr:`USB (Universal Serial Bus)`
+
+  * Deprecated property ``clock-reference`` of :dtcompatible:`st,stm32u5-otghs-phy`.
+    Do not specify the property; it is no longer required by the underlying driver.
 
 * Video
 
@@ -383,6 +459,7 @@ New APIs and options
 
   * Audio
 
+    * :c:func:`bt_aics_client_free_instance`
     * :c:func:`bt_ascs_register`
     * :c:func:`bt_ascs_unregister`
     * :c:func:`bt_bap_unicast_client_qos_from_group`
@@ -397,17 +474,32 @@ New APIs and options
     * :c:member:`bt_bap_unicast_group_info.c_to_p_ft`
     * :c:member:`bt_bap_unicast_group_info.p_to_c_ft`
     * :c:member:`bt_bap_unicast_group_info.iso_interval`
+    * :c:func:`bt_vocs_client_free_instance`
+
+  * Classic
+
+    * :kconfig:option:`CONFIG_BT_SMP_DERIVE_LTK`
+    * :kconfig:option:`CONFIG_BT_SMP_DERIVE_LK`
 
   * Host
 
     * :c:func:`bt_conn_take`
     * :c:func:`bt_conn_drop`
+    * :c:func:`bt_iso_chan_state_str`
+    * :c:func:`bt_iso_get_chan_by_conn`
     * :c:func:`bt_le_per_adv_update_did`
     * :c:member:`bt_le_adv_param.tx_power` and :c:enumerator:`BT_LE_ADV_OPT_TX_POWER`
       to request a specific TX power level per extended advertising set.
     * :c:member:`bt_conn_cb.le_param_update_rejected`
     * ``BT_HCI_QUIRK_NO_FLOW_CONTROL`` HCI device quirk for controllers that
       advertise but reject the controller to host flow control commands.
+    * :c:member:`bt_rfcomm_dlc.rx_credit_limit` to configure per-DLC initial RX credit count.
+    * :c:func:`bt_rfcomm_dlc_recv_complete` to return RX credits to the peer. Applications can
+      return ``-EINPROGRESS`` from the :c:member:`bt_rfcomm_dlc_ops.recv` callback to defer buffer
+      release and flow-control credit refill until processing is complete.
+    * HCI packet helpers (:c:macro:`BT_HCI_PKT_CMD_DEFINE`, :c:func:`bt_hci_pkt_push_cmd_hdr`,
+      :c:func:`bt_hci_pkt_parse_cmd_rsp` and friends) for framing HCI command packets and
+      parsing command responses independently of the Host.
 
   * Mesh
 
@@ -415,6 +507,18 @@ New APIs and options
     * :c:func:`bt_mesh_stat_lpn_timing_get`
     * :c:func:`bt_mesh_stat_lpn_timing_reset`
     * :kconfig:option:`CONFIG_BT_MESH_LPN_OFFER_WAIT_TIMEOUT`
+
+* Clock control
+
+  * :kconfig:option:`CLOCK_CONTROL_NRF_ONOFF`
+  * The following functions are now supported for devices compatible with ``nordic,nrf-clock-hfclk``,
+    ``nordic,nrf-clock-lfclk``, ``nordic,nrf-clock-hfclk192m``, ``nordic,nrf-clock-hfclk24m``,
+    ``nordic,nrf-clock-hfclkaudio``, ``nordic,nrf-clock-xo``, ``nordic,nrf-clock-xo24m``:
+    See the :ref:`migration guide <migration_4.5>` for details.
+    * :c:func:`clock_control_request`
+    * :c:func:`clock_control_request_sync`
+    * :c:func:`clock_control_release`
+    * :c:func:`clock_control_cancel_or_release`
 
 * Crypto
 
@@ -470,6 +574,8 @@ New APIs and options
 
   * :c:func:`lora_recv_duty_cycle`
   * :c:func:`lora_recv_duty_cycle_async`
+  * :c:func:`lora_energy_detect`
+  * :c:func:`lora_rssi`
 
 * Management
 
@@ -548,6 +654,7 @@ New APIs and options
     Memberships still held when the socket is closed are dropped automatically,
     and :kconfig:option:`CONFIG_NET_SOCKETS_PACKET_MCAST_MEMBERSHIP_COUNT` sets
     how many memberships can be active at the same time.
+  * :kconfig:option:`CONFIG_PTP_NETWORK_MODE_HYBRID`
 
 * Power Management
 
@@ -573,6 +680,10 @@ New APIs and options
 * Ring buffer
 
   * :c:struct:`sys_ringq` (see :ref:`fixed_size_ringq_api`)
+
+* USB Type-C
+
+  * :kconfig:option:`CONFIG_USBC_LOG_PD_MSG_NAMES`
 
 * Zbus
 
@@ -855,6 +966,7 @@ New Boards
 * Silicon Laboratories
 
   * :zephyr:board:`kg100s_rb4332a` (``kg100s_rb4332a``)
+  * :zephyr:board:`siwx917_ek2708a` (``siwx917_ek2708a``)
   * :zephyr:board:`xg26_dk2608a` (``xg26_dk2608a``)
   * :zephyr:board:`xg26_rb4121a` (``xg26_rb4121a``)
 
@@ -1440,6 +1552,12 @@ New Drivers
 
 * Networking
 
+  * gPTP
+
+    * :kconfig:option:`CONFIG_NET_GPTP_STATIC_TIME_RECEIVER` operates the node as a
+      statically configured time receiver, so it can synchronize through IEEE 802.1AS
+      automotive profile bridges that transmit no Announce messages.
+
   * :dtcompatible:`st,stm32wba-radio` (:github:`110546`)
 
 * :abbr:`OPAMP (Operational Amplifier)`
@@ -1561,6 +1679,7 @@ New Drivers
   * :dtcompatible:`microchip,pac194x` (:github:`105902`)
   * :dtcompatible:`nordic,nrf-vbat` (:github:`106102`)
   * :dtcompatible:`nxp,mcux-eqdc` (:github:`111927`)
+  * :dtcompatible:`plantower,pmsa003i` (:github:`113377`)
   * :dtcompatible:`raspberrypi,bcm283x-vc-thermal` (:github:`110192`)
   * :dtcompatible:`realtek,bee-aon-qdec` (:github:`105129`)
   * :dtcompatible:`realtek,bee-basic-qdec` (:github:`105129`)
@@ -1819,6 +1938,14 @@ Other notable changes
   * Removed the ``samples/net/wifi/test_certs/rsa2k`` enterprise test
     certificates (DES-encrypted private keys). Use ``rsa2k_no_des`` instead.
 
+  * The connection result event can now say that the access point rejected the
+    authentication or the association, through the new
+    :c:enumerator:`WIFI_STATUS_CONN_AUTH_REJECT` and
+    :c:enumerator:`WIFI_STATUS_CONN_ASSOC_REJECT` values, and
+    :c:struct:`wifi_status` carries the raw IEEE 802.11 status and reason codes
+    behind the failure. The supplicant fills these in, and the Wi-Fi shell prints
+    them with the connection and disconnection results. (:github:`116704`)
+
   * The transmit power ceiling properties in ``wifi-tx-power-2g.yaml`` and
     ``wifi-tx-power-5g.yaml`` are no longer ``required`` and now carry
     conservative defaults, so a board that has not been characterised errs on
@@ -1835,6 +1962,11 @@ Other notable changes
     production-signed images, while production bootloaders embed only the production
     key. The first entry is the key the application is signed with and the rest are
     verification-only public keys. See :ref:`build-signing`.
+
+  * Espressif boards no longer force overwrite-only mode and unsigned images under sysbuild.
+    They now build a swap-using-offset MCUboot with rollback and an RSA-2048 signed
+    application, and the shared Espressif partition tables no longer reserve a scratch
+    partition. See the :ref:`migration guide <migration_4.5>`.
 
 * NXP
 

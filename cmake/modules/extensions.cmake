@@ -1139,9 +1139,11 @@ endfunction()
    This function sets the runner for the board unconditionally.
    It's meant to be used from application's :file:`CMakeLists.txt` files.
 
-   NOTE: Usually :cmake:command:`board_set_xxx_ifnset()` is best in :file:`board.cmake` files.
-         This lets the user set the runner at cmake time, or in their own application's
-         :file:`CMakeLists.txt`.
+   .. note::
+
+      Usually :cmake:command:`board_set_xxx_ifnset()` is best in
+      :file:`board.cmake` files. This lets the user set the runner at cmake
+      time, or in their own application's :file:`CMakeLists.txt`.
 
    Example usage:
 
@@ -4109,6 +4111,21 @@ function(zephyr_get variable)
       get_property(sysbuild_main_app TARGET sysbuild_cache PROPERTY SYSBUILD_MAIN_APP)
       get_property(sysbuild_local_${var} TARGET sysbuild_cache PROPERTY ${sysbuild_name}_${var})
       get_property(sysbuild_global_${var} TARGET sysbuild_cache PROPERTY ${var})
+
+      foreach(scope sysbuild_local sysbuild_global)
+        string(CONFIGURE "${${scope}_${var}}" test_expansion_value)
+        if(NOT "${${scope}_${var}}" STREQUAL "${test_expansion_value}")
+          # variable contains an unresolved or undefined variable.
+          # Check if it is sysbuild or globally defined, and resolve it.
+          string(REGEX MATCHALL "\\\${[^\\\$]*}" var_references "${${scope}_${var}}")
+          foreach(var ${var_references})
+            # Var name exists in the match pattern `(<pattern>)` and not the out var `ignore`.
+            string(REGEX MATCH "^\\\${\([^}]*\)}$" ignore "${var}")
+            zephyr_get(${CMAKE_MATCH_1} SYSBUILD)
+          endforeach()
+        endif()
+      endforeach()
+
       if(NOT DEFINED sysbuild_local_${var} AND sysbuild_main_app)
         set(sysbuild_local_${var} ${sysbuild_global_${var}})
       endif()

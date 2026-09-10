@@ -74,3 +74,11 @@
 &wdt0 {
 	status = "okay";
 };
+
+&wifi {
+	status = "okay";
+};
+
+&esp32_bt_hci {
+	status = "okay";
+};

@@ -193,6 +193,7 @@
 				 <&rcc STM32_SRC_HSE ETH1CLK_SEL(3)>,
 				 <&rcc STM32_SRC_HSE ETH1CLKDIV_SEL(0)>,
 				 <&rcc STM32_SRC_HSE ETH1REFCLK_SEL(0)>;
+			resets = <&rctl STM32_RESET(AHB1, 19)>;
 			interrupts = <94 0>;
 			snps,multicast-filter-bins = <64>;
 			snps,perfect-filter-entries = <4>;
@@ -632,12 +633,6 @@
 				compatible = "st,stm32-counter";
 				status = "disabled";
 			};
-
-			pwm {
-				compatible = "st,stm32-pwm";
-				status = "disabled";
-				#pwm-cells = <3>;
-			};
 		};
 
 		timers7: timers@40001400 {
@@ -653,12 +648,6 @@
 			counter {
 				compatible = "st,stm32-counter";
 				status = "disabled";
-			};
-
-			pwm {
-				compatible = "st,stm32-pwm";
-				status = "disabled";
-				#pwm-cells = <3>;
 			};
 		};
 

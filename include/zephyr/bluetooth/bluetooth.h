@@ -212,6 +212,14 @@ struct bt_le_per_adv_response_info {
  * @note Must point to valid memory during the lifetime of the advertising set.
  *
  * @note Used in @ref bt_le_ext_adv_create.
+ *
+ * @note The callbacks are invoked from a thread context, never from an
+ *       ISR. Whether a callback is invoked from a context internal to
+ *       the stack or synchronously from within the API call that
+ *       triggers it, and from which context, is not part of the API and
+ *       may change between releases. See
+ *       @rstref{Callback execution contexts <bluetooth_callback_contexts>}
+ *       for the hazards of blocking in a callback and their mitigations.
  */
 struct bt_le_ext_adv_cb {
 	/**
@@ -333,9 +341,14 @@ typedef void (*bt_ready_cb_t)(int err);
  * earlier.
  *
  * @param cb Callback to notify completion or NULL to perform the
- * enabling synchronously. The callback is called from the system workqueue.
+ * enabling synchronously. The callback is called from a thread context
+ * internal to the stack, never from an ISR; see
+ * @rstref{Callback execution contexts <bluetooth_callback_contexts>}.
  *
- * @return Zero on success or (negative) error code otherwise.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -EALREADY Bluetooth is already enabled, or being enabled.
+ * @retval -EAGAIN Bluetooth is being disabled; retry once bt_disable() has returned.
+ * @retval -ENODEV The HCI driver is not ready.
  */
 int bt_enable(bt_ready_cb_t cb);
 
@@ -360,10 +373,10 @@ int bt_enable(bt_ready_cb_t cb);
  *
  * Close and release HCI resources. Result is architecture dependent.
  *
- * @retval 0 Success.
- * @retval -EAGAIN bt_enable() with a ready callback has not completed yet;
- *                 retry after the ready callback fires.
- * @retval -EALREADY bt_disable() has already been called.
+ * @return 0 on success, negative errno value on failure.
+ * @retval -EALREADY Bluetooth is already disabled, or being disabled.
+ * @retval -EAGAIN Bluetooth is still being enabled, which with @kconfig{CONFIG_BT_SETTINGS}
+ *                 includes loading the Bluetooth settings; retry once bt_is_ready() returns true.
  */
 int bt_disable(void);
 
@@ -1505,7 +1518,7 @@ int bt_le_ext_adv_delete(struct bt_le_ext_adv *adv);
  * @return Index of the advertising set object.
  * The range of the returned value is 0..@kconfig{CONFIG_BT_EXT_ADV_MAX_ADV_SET}-1
  */
-uint8_t bt_le_ext_adv_get_index(struct bt_le_ext_adv *adv);
+uint8_t bt_le_ext_adv_get_index(const struct bt_le_ext_adv *adv);
 
 /** Advertising states. */
 enum bt_le_ext_adv_state {
@@ -1869,6 +1882,14 @@ struct bt_le_per_adv_sync_state_info {
  * advertising.
  *
  * @note Used in @ref bt_le_per_adv_sync_cb_register function.
+ *
+ * @note The callbacks are invoked from a thread context, never from an
+ *       ISR. Whether a callback is invoked from a context internal to
+ *       the stack or synchronously from within the API call that
+ *       triggers it, and from which context, is not part of the API and
+ *       may change between releases. See
+ *       @rstref{Callback execution contexts <bluetooth_callback_contexts>}
+ *       for the hazards of blocking in a callback and their mitigations.
  */
 
 struct bt_le_per_adv_sync_cb {
@@ -2519,7 +2540,16 @@ struct bt_le_scan_recv_info {
 	uint8_t secondary_phy;
 };
 
-/** Listener context for (LE) scanning. */
+/** Listener context for (LE) scanning.
+ *
+ * @note The callbacks are invoked from a thread context, never from an
+ *       ISR. Whether a callback is invoked from a context internal to
+ *       the stack or synchronously from within the API call that
+ *       triggers it, and from which context, is not part of the API and
+ *       may change between releases. See
+ *       @rstref{Callback execution contexts <bluetooth_callback_contexts>}
+ *       for the hazards of blocking in a callback and their mitigations.
+ */
 struct bt_le_scan_cb {
 
 	/**
@@ -2676,6 +2706,7 @@ int bt_le_scan_start(const struct bt_le_scan_param *param, bt_le_scan_cb_t cb);
  *
  * @return Zero on success or error code otherwise, positive in case of
  *         protocol error or negative (POSIX) in case of stack internal error.
+ * @retval -EBUSY The scanner is being started or stopped in a different thread.
  */
 int bt_le_scan_stop(void);
 

@@ -110,16 +110,18 @@
 
 &flash0 {
 	partitions {
-		compatible = "fixed-partitions";
+		ranges;
 		#address-cells = <1>;
 		#size-cells = <1>;
 
 		ivt_header: partition@0 {
+			compatible = "zephyr,mapped-partition";
 			label = "ivt-header";
 			reg = <0x00000000 0x100>;
 		};
 
 		code_partition: partition@100 {
+			compatible = "zephyr,mapped-partition";
 			label = "code-partition";
 			reg = <0x00000100 (DT_SIZE_K(3920) - 0x100)>;
 		};
@@ -170,7 +172,7 @@
 	current-speed = <115200>;
 	pinctrl-0 = <&pinmux_lpuart_5>;
 	pinctrl-names = "default";
-	dmas = <&edma 1 44>, <&edma 2 45>;
+	dmas = <&edma 20 44>, <&edma 21 45>;
 	dma-names = "tx", "rx";
 };
 

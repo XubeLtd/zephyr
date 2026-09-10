@@ -30,7 +30,7 @@ LOG_MODULE_REGISTER(eth_nxp_enet_qos, CONFIG_ETHERNET_LOG_LEVEL);
 #endif
 
 /* Verify configuration */
-BUILD_ASSERT((ENET_QOS_RX_BUFFER_SIZE * NUM_RX_BUFDESC) >= ENET_QOS_MAX_NORMAL_FRAME_LEN,
+BUILD_ASSERT((ENET_QOS_RX_BUFFER_SIZE * NUM_RX_BUFDESC) >= ENET_QOS_MAX_FRAME_LEN,
 	"ENET_QOS_RX_BUFFER_SIZE * NUM_RX_BUFDESC is not large enough to receive a full frame");
 
 static const uint32_t rx_desc_refresh_flags =
@@ -101,21 +101,39 @@ static void eth_nxp_enet_qos_phy_cb(const struct device *phy,
 		const struct nxp_enet_qos_mac_config *config = dev->config;
 		enet_qos_t *base = config->module.base;
 
+		uint32_t mac_cfg = base->MAC_CONFIGURATION;
+
 		if (PHY_LINK_IS_SPEED_10M(state->speed)) {
 			LOG_DBG("Link Speed reduced to 10MBit");
-			base->MAC_CONFIGURATION &= ~ENET_QOS_REG_PREP(MAC_CONFIGURATION, FES, 0b1);
+			mac_cfg &= ~ENET_QOS_REG_PREP(MAC_CONFIGURATION, FES, 0b1);
 		} else {
 			LOG_DBG("Link Speed 100MBit or higher");
-			base->MAC_CONFIGURATION |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, FES, 0b1);
+			mac_cfg |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, FES, 0b1);
 		}
 
+		/* Duplex configuration */
 		if (PHY_LINK_IS_FULL_DUPLEX(state->speed)) {
 			LOG_DBG("Link Full Duplex");
-			base->MAC_CONFIGURATION |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, DM, 0b1);
+			mac_cfg |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, DM, 0b1);
 		} else {
 			LOG_DBG("Link Half Duplex");
-			base->MAC_CONFIGURATION &= ~ENET_QOS_REG_PREP(MAC_CONFIGURATION, DM, 0b1);
+			mac_cfg &= ~ENET_QOS_REG_PREP(MAC_CONFIGURATION, DM, 0b1);
 		}
+
+#if defined(CONFIG_NET_CHECKSUM_OFFLOAD)
+		/* IPC enables the receive checksum offload engine, which
+		 * verifies the IPv4 header and the TCP, UDP and ICMP payload
+		 * checksums of incoming frames over both IPv4 and IPv6.
+		 */
+		mac_cfg |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, IPC, 0b1);
+#endif
+
+		/* Transmit and receive enable */
+		mac_cfg |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, TE, 0b1);
+		mac_cfg |= ENET_QOS_REG_PREP(MAC_CONFIGURATION, RE, 0b1);
+
+		/* Single write back */
+		base->MAC_CONFIGURATION = mac_cfg;
 	}
 }
 
@@ -189,7 +207,7 @@ static int eth_nxp_enet_qos_tx(const struct device *dev, struct net_pkt *pkt)
 
 	/* Setting up the descriptors  */
 	fragment = pkt->frags;
-	tx_desc_ptr->read.control2 = FIRST_DESCRIPTOR_FLAG;
+	tx_desc_ptr->read.control2 = FIRST_DESCRIPTOR_FLAG | TX_CHECKSUM_INSERT_FLAG;
 	while (frags_idx < frags_count) {
 		net_pkt_frag_ref(fragment);
 
@@ -294,6 +312,17 @@ static enum ethernet_hw_caps eth_nxp_enet_qos_get_capabilities(const struct devi
 {
 	enum ethernet_hw_caps caps = ETHERNET_LINK_100BASE | ETHERNET_LINK_10BASE;
 
+#if defined(CONFIG_NET_CHECKSUM_OFFLOAD)
+	caps |= ETHERNET_HW_TX_CHKSUM_OFFLOAD | ETHERNET_HW_RX_CHKSUM_OFFLOAD;
+#endif
+
+#if defined(CONFIG_NET_VLAN)
+	/* The MAC accepts VLAN interfaces on the iface. Tags are inserted by
+	 * the L2 in software, so this only advertises that tagged frames are
+	 * permitted.
+	 */
+	caps |= ETHERNET_HW_VLAN;
+#endif
 #if defined(CONFIG_NET_PROMISCUOUS_MODE)
 	caps |= ETHERNET_PROMISC_MODE;
 #endif
@@ -458,7 +487,20 @@ static void eth_nxp_enet_qos_rx(struct k_work *work)
 			}
 #endif /* CONFIG_PTP_CLOCK_NXP_ENET_QOS */
 
-			if (net_recv_data(data->iface, pkt)) {
+			/* Hardware RX checksum offload: the checksum engine
+			 * writes its verdict into RDES1, valid only when
+			 * RX_STATUS1_VALID_FLAG is set. The stack trusts the
+			 * offload and does not re-verify, so drop a frame the
+			 * engine flagged with an IP header or payload checksum
+			 * error. Non-IP frames leave both bits clear.
+			 */
+			if ((desc->write.control3 & RX_STATUS1_VALID_FLAG) &&
+			    (desc->write.control1 &
+			     (RX_IP_HEADER_ERROR_FLAG | RX_IP_PAYLOAD_ERROR_FLAG))) {
+				LOG_DBG("dropping RX pkt %p with bad hardware checksum", pkt);
+				net_pkt_unref(pkt);
+				eth_stats_update_errors_rx(data->iface);
+			} else if (net_recv_data(data->iface, pkt)) {
 				LOG_WRN("RECV failed on pkt %p", pkt);
 				/* Error during processing, we continue with new buffer */
 				net_pkt_unref(pkt);
@@ -649,10 +691,12 @@ static inline void enet_qos_mac_config_init(enet_qos_t *base, struct nxp_enet_qo
 					data->mac_addr.addr[1] << 8  |
 					data->mac_addr.addr[0]);
 
-	/* permit multicast packets if there is no space in hash table for mac addresses */
-	if ((base->MAC_HW_FEAT[1] & ENET_MAC_HW_FEAT_HASHTBLSZ_MASK) == 0) {
-		base->MAC_PACKET_FILTER |= ENET_MAC_PACKET_FILTER_PM_MASK;
-	}
+	/* This driver never populates the multicast hash table nor advertises
+	 * ETHERNET_HW_FILTERING, so perfect multicast filtering is unavailable
+	 * regardless of HASHTBLSZ. Pass all multicast unconditionally. The stack
+	 * still filters in software.
+	 */
+	base->MAC_PACKET_FILTER |= ENET_MAC_PACKET_FILTER_PM_MASK;
 
 #ifdef ENET_MAC_ONEUS_TIC_COUNTER_TIC_1US_CNTR
 	/* Set the reference for 1 microsecond of ENET QOS CSR clock cycles */
@@ -710,11 +754,6 @@ static inline void enet_qos_start(enet_qos_t *base)
 		/* Receive and Transmit IRQs */
 		ENET_QOS_REG_PREP(MAC_INTERRUPT_ENABLE, TXSTSIE, 0b1) |
 		ENET_QOS_REG_PREP(MAC_INTERRUPT_ENABLE, RXSTSIE, 0b1);
-
-	/* Start the TX and RX on the MAC */
-	base->MAC_CONFIGURATION |=
-		ENET_QOS_REG_PREP(MAC_CONFIGURATION, TE, 0b1) |
-		ENET_QOS_REG_PREP(MAC_CONFIGURATION, RE, 0b1);
 }
 
 static inline void enet_qos_tx_desc_init(enet_qos_t *base, struct nxp_enet_qos_tx_data *tx)
@@ -1013,7 +1052,7 @@ static const struct ethernet_api api_funcs = {
 		.phy_dev = DEVICE_DT_GET(DT_INST_PHANDLE(n, phy_handle)),                          \
 		.hw_info =                                                                         \
 			{                                                                          \
-				.max_frame_len = ENET_QOS_MAX_NORMAL_FRAME_LEN,                    \
+				.max_frame_len = ENET_QOS_MAX_FRAME_LEN,                           \
 			},                                                                         \
 		.irq_config_func = nxp_enet_qos_##n##_irq_config_func,                             \
 		.mac_addr_source = NXP_ENET_QOS_MAC_ADDR_SOURCE(n),                                \
