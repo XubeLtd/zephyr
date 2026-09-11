@@ -446,7 +446,7 @@ static int phy_mc_ksz8081_phy_readiness_check(const struct device *dev)
 	/* According to IEEE 802.3, Section 2, Subsection 22.2.4.1.1,
 	 * a PHY reset may take up to 0.5 s.
 	 */
-	k_busy_wait(500);
+	k_busy_wait(500 * USEC_PER_MSEC);
 
 	/* Verify if PHY is ready.*/
 	ret = phy_mc_ksz8081_read(dev, MII_BMCR, &bmcr);
