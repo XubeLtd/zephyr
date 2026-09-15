@@ -647,7 +647,18 @@ static void phy_mc_ksz8081_monitor_work_handler(struct k_work *work)
 		data->flags |= KSZ8081_SILENCE_DEBUG_LOGS;
 	}
 
-	if (USING_INTERRUPT_GPIO) {
+	/* In interrupt mode, only skip the periodic reschedule once
+	 * autonegotiation has actually completed (KSZ8081_DO_AUTONEG_FLAG
+	 * cleared) and the last link-state read succeeded (rc == 0, from
+	 * phy_mc_ksz8081_update_link() above) - relying solely on the PHY's
+	 * own interrupt to ever re-evaluate a PHY that's stuck mid-negotiation
+	 * or whose MDIO reads are failing is fragile exactly when it matters
+	 * most (e.g. after an autonegotiation timeout, KSZ8081_DO_AUTONEG_FLAG
+	 * stays set but the PHY may never interrupt again; or if update_link()
+	 * itself can't reliably read the PHY, its interrupt line can't be
+	 * trusted either).
+	 */
+	if (USING_INTERRUPT_GPIO && (rc == 0) && !(data->flags & KSZ8081_DO_AUTONEG_FLAG)) {
 		return;
 	}
 
