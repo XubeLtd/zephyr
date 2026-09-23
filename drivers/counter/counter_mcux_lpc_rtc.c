@@ -204,8 +204,13 @@ static int mcux_lpc_rtc_init(const struct device *dev)
 
 	RTC_Init(config->base);
 
-	/* Issue a software reset to set the registers to init state */
-	RTC_Reset(config->base);
+	/*
+	 * Deliberately not calling RTC_Reset() here: it clears the RTC counter on every boot,
+	 * including a warm software reset, which defeats consumers (e.g. Sun's Sntp component)
+	 * that rely on the counter surviving a warm reboot to measure elapsed downtime. The RTC
+	 * domain is not reset by a warm reset at the SoC level, so leaving the counter alone is
+	 * safe there; a genuine power-on reset already clears it in hardware.
+	 */
 
 	config->irq_config_func(dev);
 
@@ -395,12 +400,13 @@ static int mcux_lpc_rtc_highres_init(const struct device *dev)
 	const struct mcux_lpc_rtc_config *config =
 		CONTAINER_OF(info, struct mcux_lpc_rtc_config, info);
 
-	/* Initialize the RTC if this is only driver using it */
+	/*
+	 * Initialize the RTC if this is only driver using it. RTC_Reset() deliberately not called
+	 * here either, for the same reason as mcux_lpc_rtc_init(): it would wipe this counter on
+	 * every boot and break consumers relying on it surviving a warm reset.
+	 */
 	if (config->rtc_dev == NULL) {
 		RTC_Init(config->base);
-
-		/* Issue a software reset to set the registers to init state */
-		RTC_Reset(config->base);
 
 		config->irq_config_func(dev);
 	}
