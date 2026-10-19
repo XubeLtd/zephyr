@@ -57,6 +57,18 @@ static int nxp_enet_mdio_wait_xfer(const struct device *dev)
 	int result = k_sem_take(&data->mdio_sem, K_USEC(CONFIG_MDIO_NXP_ENET_TIMEOUT));
 
 	if (result == -EAGAIN) {
+		/*
+		 * If interrupts were locked for longer than the timeout (e.g. XIP
+		 * flash erase/program), the system timer and the ENET interrupts
+		 * are both pending on unlock, and the timer can be serviced first.
+		 * The wait then expires although the transfer completed long ago,
+		 * so check whether the completion was signalled late before
+		 * reporting a timeout.
+		 */
+		if ((data->base->EIR & ENET_EIR_MII_MASK) ||
+		    (k_sem_take(&data->mdio_sem, K_NO_WAIT) == 0)) {
+			return 0;
+		}
 		return -ETIMEDOUT;
 	}
 
