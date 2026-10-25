@@ -58,6 +58,17 @@ struct gpio_mcux_lpc_data {
 	struct gpio_driver_data common;
 	/* port ISR callback routine address */
 	sys_slist_t callbacks;
+	/*
+	 * RW61x (MCI_IO_MUX) pads have no hardware single-ended mode. Pins
+	 * configured with GPIO_SINGLE_ENDED are tracked here (by polarity)
+	 * and emulated in software by toggling DIR: the passive rail is
+	 * emitted by switching to input (relying on the required external
+	 * pull-up/pull-down) and the active rail by switching to output,
+	 * with the output data latch fixed at 0 for open-drain pins and at
+	 * 1 for open-source pins.
+	 */
+	uint32_t open_drain_mask;
+	uint32_t open_source_mask;
 };
 
 static int gpio_mcux_lpc_configure(const struct device *dev, gpio_pin_t pin,
@@ -110,6 +121,7 @@ static int gpio_mcux_lpc_configure(const struct device *dev, gpio_pin_t pin,
 #ifdef MCI_IO_MUX /* RW61x SOCs */
 		/* Construct a pin control state, and apply it directly. */
 		pinctrl_soc_pin_t pin_cfg;
+		struct gpio_mcux_lpc_data *data = dev->data;
 
 		if (config->port_no == 1) {
 			pin_cfg = IOMUX_GPIO_IDX(pin + 32) | IOMUX_TYPE(IOMUX_GPIO);
@@ -123,6 +135,16 @@ static int gpio_mcux_lpc_configure(const struct device *dev, gpio_pin_t pin,
 			pin_cfg |= IOMUX_PAD_PULL(0x2);
 		}
 		pinctrl_configure_pins(&pin_cfg, 1, 0);
+
+		data->open_drain_mask &= ~BIT(pin);
+		data->open_source_mask &= ~BIT(pin);
+		if ((flags & GPIO_SINGLE_ENDED) != 0) {
+			if ((flags & GPIO_LINE_OPEN_DRAIN) != 0) {
+				data->open_drain_mask |= BIT(pin);
+			} else {
+				data->open_source_mask |= BIT(pin);
+			}
+		}
 #endif
 
 	if (flags & (GPIO_PULL_UP | GPIO_PULL_DOWN)) {
@@ -154,6 +176,24 @@ static int gpio_mcux_lpc_configure(const struct device *dev, gpio_pin_t pin,
 
 #endif
 	}
+
+#ifdef MCI_IO_MUX /* RW61x SOCs */
+	if ((flags & GPIO_SINGLE_ENDED) != 0) {
+		if ((flags & GPIO_LINE_OPEN_DRAIN) != 0) {
+			if ((flags & GPIO_OUTPUT_INIT_LOW) != 0) {
+				flags |= GPIO_OUTPUT;
+			} else {
+				flags &= ~GPIO_OUTPUT;
+			}
+		} else {
+			if ((flags & GPIO_OUTPUT_INIT_HIGH) != 0) {
+				flags |= GPIO_OUTPUT;
+			} else {
+				flags &= ~GPIO_OUTPUT;
+			}
+		}
+	}
+#endif
 
 	/* supports access by pin now,you can add access by port when needed */
 	if (flags & GPIO_OUTPUT_INIT_HIGH) {
@@ -189,6 +229,21 @@ static int gpio_mcux_lpc_port_set_masked_raw(const struct device *dev,
 	GPIO_Type *gpio_base = config->gpio_base;
 	uint32_t port = config->port_no;
 
+#ifdef MCI_IO_MUX /* RW61x SOCs: soft open-drain pins toggle DIR instead */
+	struct gpio_mcux_lpc_data *data = dev->data;
+	uint32_t od_mask = mask & data->open_drain_mask;
+	uint32_t os_mask = mask & data->open_source_mask;
+
+	if (od_mask != 0U) {
+		gpio_base->DIRCLR[port] = od_mask & value;
+		gpio_base->DIRSET[port] = od_mask & ~value;
+	}
+	if (os_mask != 0U) {
+		gpio_base->DIRCLR[port] = os_mask & ~value;
+		gpio_base->DIRSET[port] = os_mask & value;
+	}
+#endif
+
 	/* Writing 0 allows R+W, 1 disables the pin */
 	gpio_base->MASK[port] = ~mask;
 	gpio_base->MPIN[port] = value;
@@ -203,8 +258,24 @@ static int gpio_mcux_lpc_port_set_bits_raw(const struct device *dev,
 {
 	const struct gpio_mcux_lpc_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
+	uint32_t port = config->port_no;
 
-	gpio_base->SET[config->port_no] = mask;
+#ifdef MCI_IO_MUX /* RW61x SOCs: soft open-drain pins toggle DIR instead */
+	struct gpio_mcux_lpc_data *data = dev->data;
+	uint32_t od_mask = mask & data->open_drain_mask;
+	uint32_t os_mask = mask & data->open_source_mask;
+
+	if (od_mask != 0U) {
+		/* Logical high: release the pin (input, external pull-up) */
+		gpio_base->DIRCLR[port] = od_mask;
+	}
+	if (os_mask != 0U) {
+		/* Logical high: drive the pin (output data latch is already 1) */
+		gpio_base->DIRSET[port] = os_mask;
+	}
+#endif
+
+	gpio_base->SET[port] = mask;
 
 	return 0;
 }
@@ -214,8 +285,24 @@ static int gpio_mcux_lpc_port_clear_bits_raw(const struct device *dev,
 {
 	const struct gpio_mcux_lpc_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
+	uint32_t port = config->port_no;
 
-	gpio_base->CLR[config->port_no] = mask;
+#ifdef MCI_IO_MUX /* RW61x SOCs: soft open-drain pins toggle DIR instead */
+	struct gpio_mcux_lpc_data *data = dev->data;
+	uint32_t od_mask = mask & data->open_drain_mask;
+	uint32_t os_mask = mask & data->open_source_mask;
+
+	if (od_mask != 0U) {
+		/* Logical low: drive the pin (output data latch is already 0) */
+		gpio_base->DIRSET[port] = od_mask;
+	}
+	if (os_mask != 0U) {
+		/* Logical low: release the pin (input, external pull-down) */
+		gpio_base->DIRCLR[port] = os_mask;
+	}
+#endif
+
+	gpio_base->CLR[port] = mask;
 
 	return 0;
 }
@@ -225,8 +312,22 @@ static int gpio_mcux_lpc_port_toggle_bits(const struct device *dev,
 {
 	const struct gpio_mcux_lpc_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
+	uint32_t port = config->port_no;
 
-	gpio_base->NOT[config->port_no] = mask;
+#ifdef MCI_IO_MUX /* RW61x SOCs: soft open-drain pins toggle DIR instead */
+	struct gpio_mcux_lpc_data *data = dev->data;
+	uint32_t od_mask = mask & data->open_drain_mask;
+	uint32_t os_mask = mask & data->open_source_mask;
+
+	if (od_mask != 0U) {
+		gpio_base->DIRNOT[port] = od_mask;
+	}
+	if (os_mask != 0U) {
+		gpio_base->DIRNOT[port] = os_mask;
+	}
+#endif
+
+	gpio_base->NOT[port] = mask;
 
 	return 0;
 }

@@ -176,9 +176,13 @@ static int i2c_gpio_init(const struct device *dev)
 	}
 
 #ifdef CONFIG_I2C_GPIO_CLOCK_STRETCHING
-	err = gpio_pin_configure_dt(&config->scl_gpio, GPIO_INPUT | GPIO_OUTPUT_HIGH);
+	err = gpio_pin_configure_dt(&config->scl_gpio,
+					GPIO_OUTPUT_HIGH | GPIO_OPEN_DRAIN);
 	if (err == -ENOTSUP) {
-		err = gpio_pin_configure_dt(&config->scl_gpio, GPIO_OUTPUT_HIGH);
+		err = gpio_pin_configure_dt(&config->scl_gpio, GPIO_INPUT | GPIO_OUTPUT_HIGH);
+		if (err == -ENOTSUP) {
+			err = gpio_pin_configure_dt(&config->scl_gpio, GPIO_OUTPUT_HIGH);
+		}
 	}
 #else
 	err = gpio_pin_configure_dt(&config->scl_gpio, GPIO_OUTPUT_HIGH);
@@ -194,10 +198,14 @@ static int i2c_gpio_init(const struct device *dev)
 	}
 
 	err = gpio_pin_configure_dt(&config->sda_gpio,
-				    GPIO_INPUT | GPIO_OUTPUT_HIGH);
+					GPIO_OUTPUT_HIGH | GPIO_OPEN_DRAIN);
 	if (err == -ENOTSUP) {
 		err = gpio_pin_configure_dt(&config->sda_gpio,
-					    GPIO_OUTPUT_HIGH);
+						GPIO_INPUT | GPIO_OUTPUT_HIGH);
+		if (err == -ENOTSUP) {
+			err = gpio_pin_configure_dt(&config->sda_gpio,
+							GPIO_OUTPUT_HIGH);
+		}
 	}
 	if (err) {
 		LOG_ERR("failed to configure SDA GPIO pin (err %d)", err);
