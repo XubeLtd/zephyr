@@ -142,7 +142,12 @@ static void spi_mcux_transfer_next_packet(const struct device *dev)
 		transfer.dataSize = ctx->tx_len;
 	}
 
-	if (ctx->tx_count <= 1 && ctx->rx_count <= 1) {
+	/* End the frame (deassert the hardware SSEL) only on the chunk that
+	 * finishes both the last tx and the last rx buffer, not on the first
+	 * part of a split unequal length tx/rx buffer pair.
+	 */
+	if (ctx->tx_count <= 1 && ctx->rx_count <= 1 &&
+	    transfer.dataSize == MAX(ctx->tx_len, ctx->rx_len)) {
 		transfer.configFlags = kSPI_FrameAssert;
 	}
 
