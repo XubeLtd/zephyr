@@ -1073,7 +1073,17 @@ int net_configure_address(struct net_ip_config *addr, void *intrfc_handle)
 	switch (addr->ipv4.addr_type) {
 	case NET_ADDR_TYPE_STATIC:
 #if defined(CONFIG_NET_IPV4)
-		if (addr->ipv4.address != 0) {
+		/* Without CONFIG_WIFI_STA_AUTO_DHCPV4 the application owns the STA
+		 * address and the STA profile is never marked as DHCP, so it lands
+		 * here. Its address is then only the connection manager's copy of
+		 * the last address seen on the interface (it writes that back into
+		 * the profile), not a configured static address. Applying it on a
+		 * re-join would pin the previous lease as a manual address, which
+		 * nothing removes and which keeps the DHCP client from applying a
+		 * different lease.
+		 */
+		if (addr->ipv4.address != 0 &&
+		    (IS_ENABLED(CONFIG_WIFI_STA_AUTO_DHCPV4) || if_handle != &g_mlan)) {
 			NET_IPV4_ADDR_U32(if_handle->ipaddr) = addr->ipv4.address;
 			NET_IPV4_ADDR_U32(if_handle->nmask) = addr->ipv4.netmask;
 			NET_IPV4_ADDR_U32(if_handle->gw) = addr->ipv4.gw;
