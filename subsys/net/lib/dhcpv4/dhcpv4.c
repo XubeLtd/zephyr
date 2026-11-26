@@ -1574,6 +1574,7 @@ static void dhcpv4_handle_msg_nak(struct net_if *iface)
 
 		/* Restart the configuration process. */
 		dhcpv4_enter_selecting(iface);
+		dhcpv4_immediate_timeout(&iface->config.dhcpv4);
 		break;
 	}
 }
